@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>3D Fundus Viewer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    html,body { height:100%; margin:0; background:#000; }
+    #container { width:100%; height:100vh; overflow:hidden; }
+    #loading { position: absolute; top:10px; left:10px; color:#fff; font-family: sans-serif; z-index:10; }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading...</div>
+  <div id="container"></div>
+
+  <!-- Three.js + extras from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    // ---------- CONFIG ----------
+    // If your GLB is in same folder, use 'fundus.glb'
+    // If hosted remotely, set full URL: 'https://yourusername.github.io/fundus-viewer/fundus.glb'
+    const MODEL_URL = 'fundus.glb';
+
+    // ---------- Scene / Renderer ----------
+    const container = document.getElementById('container');
+    const scene = new THREE.Scene();
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    container.appendChild(renderer.domElement);
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 1000);
+
+    // Lights
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222222, 0.8);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 7);
+    scene.add(dir);
+
+    // Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.screenSpacePanning = false;
+    controls.minDistance = 0.01;
+    controls.maxDistance = 1000;
+
+    // Resize handling
+    window.addEventListener('resize', onWindowResize);
+    function onWindowResize() {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    // ---------- Load Model ----------
+    const loader = new THREE.GLTFLoader();
+    const loadingDiv = document.getElementById('loading');
+
+    loader.load(MODEL_URL,
+      function (gltf) {
+        // add model
+        const model = gltf.scene || gltf.scenes[0];
+        scene.add(model);
+
+        // center & frame
+        frameModel(model);
+
+        loadingDiv.style.display = 'none';
+      },
+      // progress
+      function (xhr) {
+        if (xhr && xhr.loaded && xhr.total) {
+          const pct = Math.round(xhr.loaded / xhr.total * 100);
+          loadingDiv.textContent = 'Loading: ' + pct + '%';
+        }
+      },
+      // error
+      function (err) {
+        loadingDiv.textContent = 'Error loading model (see console)';
+        console.error('GLTF load error:', err);
+      }
+    );
+
+    // ---------- Helper: frame model in view ----------
+    function frameModel(object3d) {
+      // compute bounding box
+      const box = new THREE.Box3().setFromObject(object3d);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      // find max dimension
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = camera.fov * (Math.PI / 180);
+      // distance from center so the object fits in view
+      let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+      cameraZ *= 1.4; // margin
+
+      // set camera position & near/far
+      camera.position.copy(center);
+      camera.position.z += cameraZ;
+      camera.near = cameraZ / 100;
+      camera.far = cameraZ * 100;
+      camera.updateProjectionMatrix();
+
+      // set controls target and limits
+      controls.target.copy(center);
+      controls.maxDistance = cameraZ * 10;
+      controls.update();
+    }
+
+    // ---------- Animation loop ----------
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ---------- Optional: drag-and-drop replacement (dev convenience) ----------
+    // Uncomment if you want to drag a GLB onto the viewer to replace model locally.
+    /*
+    window.addEventListener('dragover', (e) => { e.preventDefault(); }, false);
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      loader.load(url, function(gltf) {
+        // remove old children
+        while (scene.children.length) scene.remove(scene.children[0]);
+        scene.add(new THREE.AmbientLight(0x404040));
+        scene.add(gltf.scene);
+        frameModel(gltf.scene);
+      });
+    });
+    */
+  </script>
+</body>
+</html>
